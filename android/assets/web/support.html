@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Support — Titan Fortune</title>
+  <style>
+    body {
+      background: #ffffff;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    .support-container {
+            max-width: 400px;
+            margin: 24px auto;
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      padding: 32px 28px 24px 28px;
+    }
+    .support-title {
+      font-size: 1.6em;
+      color: #2a5d9f;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    .support-desc {
+      color: #555;
+      font-size: 1em;
+      margin-bottom: 22px;
+      text-align: center;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: #2a5d9f;
+      font-weight: 500;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 18px;
+      border: 1px solid #bcdffb;
+      border-radius: 8px;
+      font-size: 1em;
+      background: #f7fbff;
+      transition: border-color 0.2s;
+    }
+    input:focus, textarea:focus {
+      border-color: #2a5d9f;
+      outline: none;
+    }
+    .support-btn {
+      width: 100%;
+      background: linear-gradient(90deg, #2a5d9f 0%, #4fc3f7 100%);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 1.1em;
+      cursor: pointer;
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+      transition: background 0.2s;
+    }
+    .support-btn:hover {
+      background: linear-gradient(90deg, #4fc3f7 0%, #2a5d9f 100%);
+    }
+    .support-success {
+      display: none;
+      color: #2a5d9f;
+      background: #e3f7e7;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 10px;
+      text-align: center;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="support-container">
+    <div class="support-title">Support for Titan Fortune</div>
+    <div class="support-desc">Please fill out the form below to ask a question or submit a request.</div>
+    <form id="supportForm">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" required placeholder="Your email">
+      <label for="question">Question</label>
+      <textarea id="question" name="question" rows="4" required placeholder="Describe your question..."></textarea>
+      <button type="submit" class="support-btn">Send</button>
+    </form>
+    <div class="support-success" id="supportSuccess">Your request has been sent!</div>
+  </div>
+  <script>
+    document.getElementById('supportForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      document.getElementById('supportSuccess').style.display = 'block';
+      setTimeout(function() {
+        document.getElementById('supportSuccess').style.display = 'none';
+      }, 3500);
+      document.getElementById('supportForm').reset();
+    });
+  </script>
+</body>
+</html>
