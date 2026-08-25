@@ -21,17 +21,20 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
+
         assets = Assets(this)
         val edition = runCatching { GameEdition.valueOf(BuildConfig.GAME_EDITION) }
             .getOrDefault(GameEdition.V3_COMPLETE)
+
         setContent {
             TitanTheme {
                 TitanApp(
                     assets = assets,
                     edition = edition,
                     lockLandscape = {
-                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                    }
+                        requestedOrientation =
+                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    },
                 )
             }
         }

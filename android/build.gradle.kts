@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     kotlin("android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 val keystoreProperties = Properties()
@@ -13,15 +14,37 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.titanfortune.game"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.titanfortune.titanfortunegame"
         minSdk = 24
-        targetSdk = 34
-        versionCode = 2
-        versionName = "1.0.1"
+        targetSdk = 35
+        versionCode = 10
+        versionName = "1.1.0"
         resValue("string", "app_name", "Titan Fortune")
+    }
+
+    flavorDimensions += "edition"
+    productFlavors {
+        create("v1Simple") {
+            dimension = "edition"
+            versionCode = 10
+            versionName = "1.1.0"
+            buildConfigField("String", "GAME_EDITION", "\"V1_SIMPLE\"")
+        }
+        create("v2Standard") {
+            dimension = "edition"
+            versionCode = 11
+            versionName = "1.1.1"
+            buildConfigField("String", "GAME_EDITION", "\"V2_STANDARD\"")
+        }
+        create("v3Complete") {
+            dimension = "edition"
+            versionCode = 12
+            versionName = "1.1.2"
+            buildConfigField("String", "GAME_EDITION", "\"V3_COMPLETE\"")
+        }
     }
 
     signingConfigs {
@@ -35,33 +58,10 @@ android {
         }
     }
 
-    flavorDimensions += "edition"
-    productFlavors {
-        create("v1Simple") {
-            dimension = "edition"
-            versionCode = 2
-            versionName = "1.0.1"
-            buildConfigField("String", "GAME_EDITION", "\"V1_SIMPLE\"")
-        }
-        create("v2Standard") {
-            dimension = "edition"
-            versionCode = 3
-            versionName = "1.0.2"
-            buildConfigField("String", "GAME_EDITION", "\"V2_STANDARD\"")
-        }
-        create("v3Complete") {
-            dimension = "edition"
-            versionCode = 4
-            versionName = "1.0.3"
-            buildConfigField("String", "GAME_EDITION", "\"V3_COMPLETE\"")
-        }
-    }
-
     buildFeatures {
         buildConfig = true
         compose = true
     }
-    composeOptions { kotlinCompilerExtensionVersion = "1.5.8" }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -88,25 +88,31 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
         getByName("release") {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                file("proguard-rules.pro")
+            )
             signingConfig = signingConfigs.getByName("release")
         }
     }
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.02.02")
+    val composeBom = platform("androidx.compose:compose-bom:2025.02.00")
     implementation(composeBom)
-    implementation("androidx.activity:activity-compose:1.8.2")
+    implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
-    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }
 
-android.applicationVariants.all {
+android.applicationVariants.configureEach {
     if (buildType.name == "release") {
         outputs.all {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl)
