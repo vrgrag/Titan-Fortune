@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "467242773776",
+    "project_id": "titan-fortune",
+    "storage_bucket": "titan-fortune.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:467242773776:android:b852f1d1ff37917e33c995",
+        "android_client_info": {
+          "package_name": "com.titanfortune.titanfortunegame"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAKBbwPLpkGCGqKdtMbZfQ9N_Xh1PeYEXk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

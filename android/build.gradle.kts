@@ -4,6 +4,7 @@ plugins {
     id("com.android.application")
     kotlin("android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
 }
 
 val keystoreProperties = Properties()
@@ -18,33 +19,12 @@ android {
 
     defaultConfig {
         applicationId = "com.titanfortune.titanfortunegame"
-        minSdk = 24
+        minSdk = 30
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.1.0"
+        versionCode = 17
+        versionName = "1.1.7"
         resValue("string", "app_name", "Titan Fortune")
-    }
-
-    flavorDimensions += "edition"
-    productFlavors {
-        create("v1Simple") {
-            dimension = "edition"
-            versionCode = 10
-            versionName = "1.1.0"
-            buildConfigField("String", "GAME_EDITION", "\"V1_SIMPLE\"")
-        }
-        create("v2Standard") {
-            dimension = "edition"
-            versionCode = 11
-            versionName = "1.1.1"
-            buildConfigField("String", "GAME_EDITION", "\"V2_STANDARD\"")
-        }
-        create("v3Complete") {
-            dimension = "edition"
-            versionCode = 12
-            versionName = "1.1.2"
-            buildConfigField("String", "GAME_EDITION", "\"V3_COMPLETE\"")
-        }
+        buildConfigField("String", "GAME_EDITION", "\"V3_COMPLETE\"")
     }
 
     signingConfigs {
@@ -109,7 +89,13 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.6")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("com.appsflyer:af-android-sdk:6.16.2")
+    implementation("com.android.installreferrer:installreferrer:2.2")
+    implementation(platform("com.google.firebase:firebase-bom:33.12.0"))
+    implementation("com.google.firebase:firebase-messaging")
+    implementation("com.google.firebase:firebase-analytics")
 }
 
 android.applicationVariants.configureEach {
