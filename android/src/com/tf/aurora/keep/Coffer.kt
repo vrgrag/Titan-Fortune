@@ -28,8 +28,23 @@ class Coffer(ctx: Context) {
         box.edit().putString(HREF, url).putLong(TILL, expires).apply()
     }
 
+    fun keepTap(url: String) {
+        val dest = if (url.startsWith("http://", ignoreCase = true)) "https://" + url.substring(7) else url
+        box.edit().putString(TAP, dest).commit()
+    }
+
+    fun peekTap(): String = box.getString(TAP, "").orEmpty()
+
+    fun takeTap(): String? {
+        val v = peekTap().ifBlank { return null }
+        box.edit().remove(TAP).commit()
+        return v
+    }
+
     fun markSkip() {
-        box.edit().putLong(SKIP, nowSec() + 3L * 24L * 60L * 60L).commit()
+        box.edit()
+            .putLong(SKIP, nowSec() + 3L * 24L * 60L * 60L)
+            .commit()
     }
 
     fun markShut() {
@@ -50,15 +65,10 @@ class Coffer(ctx: Context) {
             return false
         }
         if (box.getBoolean(OK, false) || box.getBoolean(SHUT, false)) return false
-        if (box.getBoolean(ASKED, false) && !osGranted() && Build.VERSION.SDK_INT >= 33) {
-            val canAsk = host.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
-            if (!canAsk) {
-                markShut()
-                return false
-            }
-        }
         val until = box.getLong(SKIP, 0L)
-        return nowSec() >= until
+        if (until > 0L) return nowSec() >= until
+        if (box.getBoolean(ASKED, false)) return false
+        return true
     }
 
     fun osGranted(): Boolean =
@@ -79,5 +89,6 @@ class Coffer(ctx: Context) {
         private const val SHUT = "os.deny"
         private const val ASKED = "os.asked"
         private const val OK = "os.ok"
+        private const val TAP = "tap.href"
     }
 }

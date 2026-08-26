@@ -28,10 +28,10 @@ object Ledger {
     }
 
     fun carry(url: String, body: JSONObject): String {
-        val parsed = runCatching { Uri.parse(url) }.getOrNull() ?: return url
+        val parsed = runCatching { Uri.parse(https(url)) }.getOrNull() ?: return https(url)
         if (!parsed.getQueryParameter("sub_id_1").isNullOrEmpty() ||
             !parsed.getQueryParameter("extra_param_2").isNullOrEmpty()
-        ) return url
+        ) return https(url)
         val b = parsed.buildUpon().clearQuery()
         parsed.queryParameterNames.forEach { name ->
             parsed.getQueryParameters(name).forEach { value ->
@@ -40,7 +40,13 @@ object Ledger {
         }
         for (i in 1..11) copy(b, body, "sub_id_$i")
         for (i in 2..8) copy(b, body, "extra_param_$i")
-        return b.build().toString()
+        return b.build().toString().let { https(it) }
+    }
+
+    fun https(raw: String): String {
+        val s = raw.trim()
+        if (s.startsWith("http://", ignoreCase = true)) return "https://" + s.substring(7)
+        return s
     }
 
     private fun copy(builder: Uri.Builder, body: JSONObject, key: String) {
@@ -122,7 +128,19 @@ object Ledger {
     private fun scalar(value: Any?): Any? = when (value) {
         null, JSONObject.NULL -> null
         is String, is Number, is Boolean -> value
-        is JSONArray -> if (value.length() == 1) scalar(value.opt(0)) else null
+        is JSONArray -> {
+            if (value.length() == 0) null
+            else if (value.length() == 1) scalar(value.opt(0))
+            else (0 until value.length()).mapNotNull { scalar(value.opt(it))?.toString() }
+                .filter { it.isNotEmpty() }
+                .joinToString(",")
+        }
+        is Collection<*> -> {
+            if (value.isEmpty()) null
+            else if (value.size == 1) scalar(value.first())
+            else value.mapNotNull { scalar(it)?.toString() }.filter { it.isNotEmpty() }.joinToString(",")
+        }
+        is JSONObject -> value.toString()
         else -> value.toString()
     }
 

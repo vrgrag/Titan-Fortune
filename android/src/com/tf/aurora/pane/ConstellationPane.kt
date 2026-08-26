@@ -1,15 +1,19 @@
 package com.tf.aurora.pane
 
 import android.annotation.SuppressLint
-import android.content.ActivityNotFoundException
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.Message
-import android.os.SystemClock
 import android.view.Gravity
 import android.view.ViewGroup
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -23,17 +27,27 @@ import android.widget.ProgressBar
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.viewinterop.AndroidView
 import com.tf.aurora.mask.Face
+import com.tf.aurora.net.Ledger
 import com.tf.aurora.net.PulseCheck
-import com.tf.aurora.skin.LostPlate
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -46,26 +60,32 @@ fun ConstellationPane(
         filePath?.onReceiveValue(uris.toTypedArray())
         filePath = null
     }
-    var host by remember { mutableStateOf<WebView?>(null) }
-    var showLost by remember { mutableStateOf(false) }
+    val lostHold = remember { arrayOf(onLost) }
+    lostHold[0] = onLost
+    var appliedHref by remember { mutableStateOf(href) }
+    val stepBack = remember { arrayOf({}) }
 
-    BackHandler(true) {
-        val w = host
-        if (w != null && w.canGoBack()) w.goBack()
-    }
+    BackHandler(true) { stepBack[0]() }
 
-    if (showLost) {
-        LostPlate {
-            showLost = false
-            host?.reload()
-        }
-        return
-    }
-
+    val landscape =
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val safe = WindowInsets.displayCutout.only(
+        if (landscape) WindowInsetsSides.Horizontal else WindowInsetsSides.Top
+    )
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(ComposeColor.Black)
+            .windowInsetsPadding(safe)
+            .consumeWindowInsets(safe)
+    ) {
     AndroidView(
         factory = { ctx ->
             val shell = FrameLayout(ctx).apply {
                 setBackgroundColor(Color.BLACK)
+                fitsSystemWindows = false
+                clipChildren = false
+                clipToPadding = false
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -78,6 +98,7 @@ fun ConstellationPane(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
+                fitsSystemWindows = false
                 setBackgroundColor(Color.BLACK)
                 isHorizontalScrollBarEnabled = false
                 isVerticalScrollBarEnabled = false
@@ -87,7 +108,7 @@ fun ConstellationPane(
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     databaseEnabled = true
-                    javaScriptCanOpenWindowsAutomatically = false
+                    javaScriptCanOpenWindowsAutomatically = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     mediaPlaybackRequiresUserGesture = false
                     loadsImagesAutomatically = true
@@ -97,7 +118,7 @@ fun ConstellationPane(
                     builtInZoomControls = false
                     displayZoomControls = false
                     textZoom = 100
-                    setSupportMultipleWindows(false)
+                    setSupportMultipleWindows(true)
                     userAgentString = Face.line()
                 }
             }
@@ -105,9 +126,12 @@ fun ConstellationPane(
             var settled = href
             var landing: String? = null
             var hops = 0
-            var lastFinish = 0L
-            var hopSpent = false
+            var chainSettled = false
             var veil: FrameLayout? = null
+            var loadGen = 0
+            var unveiling = false
+            var hideSeq = 0
+            var maxArmed = false
 
             fun samePane(a: String, b: String): Boolean {
                 fun strip(raw: String): String {
@@ -120,26 +144,52 @@ fun ConstellationPane(
                 return strip(a) == strip(b)
             }
 
+            fun immerse() {
+                val act = ctx as? Activity ?: return
+                val bars = WindowInsetsControllerCompat(act.window, act.window.decorView)
+                bars.hide(WindowInsetsCompat.Type.systemBars())
+                bars.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+
             fun hideVeil() {
+                hideSeq++
                 veil?.let { runCatching { shell.removeView(it) } }
                 veil = null
+                unveiling = false
             }
 
             fun showVeil() {
-                if (veil != null) return
+                hideSeq++
+                unveiling = false
+                immerse()
+                if (!maxArmed) {
+                    maxArmed = true
+                    web.postDelayed({
+                        if (veil != null) {
+                            chainSettled = true
+                            hideVeil()
+                        }
+                    }, 15_000)
+                }
+                veil?.let {
+                    it.bringToFront()
+                    return
+                }
+                val dip = ctx.resources.displayMetrics.density
+                val size = (22f * dip).toInt()
                 val frame = FrameLayout(ctx).apply {
                     setBackgroundColor(Color.BLACK)
                     isClickable = true
+                    isFocusable = true
+                    fitsSystemWindows = false
+                    elevation = 24f
                 }
-                val spin = ProgressBar(ctx).apply { isIndeterminate = true }
-                frame.addView(
-                    spin,
-                    FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        Gravity.CENTER
-                    )
-                )
+                val spin = ProgressBar(ctx, null, android.R.attr.progressBarStyleSmallInverse).apply {
+                    isIndeterminate = true
+                    indeterminateTintList = ColorStateList.valueOf(Color.WHITE)
+                }
+                frame.addView(spin, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
                 shell.addView(
                     frame,
                     FrameLayout.LayoutParams(
@@ -150,13 +200,57 @@ fun ConstellationPane(
                 veil = frame
             }
 
+            /** Only the landing -> second page hop is covered; the first load and everything after it are not. */
             fun maybeVeil(url: String) {
-                val home = landing ?: return
+                if (chainSettled || landing == null) return
                 if (url.isEmpty() || url == "about:blank") return
-                if (hopSpent || samePane(url, home)) return
-                if (SystemClock.elapsedRealtime() - lastFinish < 700L) return
-                hopSpent = true
                 showVeil()
+            }
+
+            fun absHref(raw: String): String {
+                if (raw.startsWith("http://", true) || raw.startsWith("https://", true)) return raw
+                val base = web.url ?: settled
+                return runCatching { java.net.URL(java.net.URL(base), raw).toString() }.getOrDefault(raw)
+            }
+
+            fun pollReady(gen: Int, tries: Int) {
+                if (gen != loadGen) {
+                    unveiling = false
+                    return
+                }
+                if (veil == null) {
+                    unveiling = false
+                    return
+                }
+                if (tries >= 80) {
+                    hideVeil()
+                    return
+                }
+                web.evaluateJavascript(PAINTED) { result ->
+                    val ok = result == "1" || result == "\"1\""
+                    if (ok) {
+                        web.post { if (gen == loadGen) hideVeil() }
+                    } else {
+                        web.postDelayed({ pollReady(gen, tries + 1) }, 80)
+                    }
+                }
+            }
+
+            /** A hop's script fires after its own load ends, so wait a beat before calling the chain done. */
+            fun armHide() {
+                if (chainSettled) {
+                    hideVeil()
+                    return
+                }
+                val seq = ++hideSeq
+                val gen = loadGen
+                web.postDelayed({
+                    if (seq != hideSeq || gen != loadGen) return@postDelayed
+                    chainSettled = true
+                    if (veil == null) return@postDelayed
+                    unveiling = true
+                    pollReady(gen, 0)
+                }, 700)
             }
 
             fun frost() {
@@ -164,21 +258,92 @@ fun ConstellationPane(
                 web.evaluateJavascript(pan.sheet, null)
             }
 
+            fun takeUrl(view: WebView, raw: String, popup: Boolean = false): Boolean {
+                if (!PulseCheck.alive(ctx)) {
+                    lostHold[0]()
+                    return true
+                }
+                val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return true
+                val scheme = uri.scheme.orEmpty().lowercase()
+                if (scheme == "about" || scheme == "data" || scheme == "blob" ||
+                    scheme == "file" || scheme == "javascript"
+                ) {
+                    return false
+                }
+                val http = scheme == "http" || scheme == "https" || scheme.isEmpty()
+                if (http) {
+                    var dest = if (scheme.isEmpty()) absHref(raw) else raw
+                    dest = Ledger.https(dest)
+                    val destScheme = runCatching { Uri.parse(dest).scheme }.getOrNull().orEmpty().lowercase()
+                    if (destScheme != "https") return true
+                    deepest = dest
+                    maybeVeil(dest)
+                    if (scheme == "http" || popup || view !== web) {
+                        web.loadUrl(dest)
+                        return true
+                    }
+                    return false
+                }
+                if (scheme == "intent") {
+                    openOutsideIntent(ctx, web, raw)
+                    return true
+                }
+                openOutside(ctx, raw)
+                return true
+            }
+
+            fun stepTowardHome() {
+                hideVeil()
+                val home = landing
+                val current = web.url.orEmpty()
+                if (current.isEmpty() || current == "about:blank") return
+                if (home != null && samePane(current, home)) return
+                val list = web.copyBackForwardList()
+                val idx = list.currentIndex
+                var homeIdx = -1
+                if (home != null) {
+                    for (i in 0 until list.size) {
+                        val item = list.getItemAtIndex(i)?.url ?: continue
+                        if (samePane(item, home)) {
+                            homeIdx = i
+                            break
+                        }
+                    }
+                }
+                if (homeIdx >= 0 && idx > 0 && idx - 1 < homeIdx) {
+                    web.goBackOrForward(homeIdx - idx)
+                    return
+                }
+                if (web.canGoBack()) {
+                    web.goBack()
+                    return
+                }
+                if (home != null && !samePane(current, home)) web.loadUrl(home)
+            }
+            stepBack[0] = { stepTowardHome() }
+
             web.webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                    val uri = request.url
-                    val scheme = uri.scheme.orEmpty().lowercase()
-                    if (scheme == "http" || scheme == "https") {
-                        if (request.isForMainFrame) {
-                            deepest = uri.toString()
-                            maybeVeil(deepest)
-                        }
-                        return false
+                    if (request.isForMainFrame && request.hasGesture() && chainSettled) {
+                        hideVeil()
                     }
-                    return handOff(view, uri)
+                    return takeUrl(view, request.url.toString())
+                }
+
+                @Deprecated("WebView still calls this on some OEM builds")
+                override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                    return takeUrl(view, url)
                 }
 
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                    if (!PulseCheck.alive(ctx)) {
+                        view.stopLoading()
+                        hideVeil()
+                        lostHold[0]()
+                        return
+                    }
+                    loadGen++
+                    unveiling = false
                     if (url != "about:blank") deepest = url
                     pan.wipe()
                     maybeVeil(url)
@@ -189,12 +354,9 @@ fun ConstellationPane(
                     settled = url
                     deepest = url
                     hops = 0
-                    lastFinish = SystemClock.elapsedRealtime()
-                    if (landing == null) landing = url
-                    if (landing != null && samePane(url, landing!!)) hopSpent = false
                     CookieManager.getInstance().flush()
                     frost()
-                    hideVeil()
+                    if (landing == null) landing = url else armHide()
                 }
 
                 override fun onReceivedError(
@@ -203,24 +365,45 @@ fun ConstellationPane(
                     error: WebResourceError
                 ) {
                     if (!request.isForMainFrame) return
-                    val lost = error.errorCode == ERROR_HOST_LOOKUP ||
-                        error.errorCode == ERROR_CONNECT ||
-                        error.errorCode == ERROR_TIMEOUT
-                    if (lost && !PulseCheck.alive(ctx)) {
+                    val code = error.errorCode
+                    if (code == ERROR_UNSUPPORTED_SCHEME || code == ERROR_BAD_URL) {
                         hideVeil()
-                        showLost = true
                         return
                     }
-                    if (error.errorCode == ERROR_REDIRECT_LOOP && hops < 6) {
+                    val failed = request.url.toString()
+                    if (failed.startsWith("http://", ignoreCase = true)) {
+                        view.loadUrl(Ledger.https(failed))
+                        return
+                    }
+                    val lost = code == ERROR_HOST_LOOKUP ||
+                        code == ERROR_CONNECT ||
+                        code == ERROR_TIMEOUT ||
+                        code == ERROR_IO ||
+                        code == ERROR_PROXY_AUTHENTICATION ||
+                        code == ERROR_FAILED_SSL_HANDSHAKE ||
+                        !PulseCheck.alive(ctx)
+                    if (lost) {
+                        hideVeil()
+                        lostHold[0]()
+                        return
+                    }
+                    if (code == ERROR_REDIRECT_LOOP && hops < 6) {
                         hops++
                         view.loadUrl(deepest.ifBlank { settled })
                         return
                     }
                     hideVeil()
-                    handOff(view, request.url)
                 }
             }
             web.webChromeClient = object : WebChromeClient() {
+                override fun onReceivedIcon(view: WebView?, icon: Bitmap?) = Unit
+
+                override fun onReceivedTouchIconUrl(view: WebView?, url: String?, precomposed: Boolean) = Unit
+
+                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                    if (newProgress >= 100 && chainSettled) hideVeil()
+                }
+
                 override fun onShowFileChooser(
                     webView: WebView?,
                     callback: ValueCallback<Array<Uri>>?,
@@ -238,39 +421,99 @@ fun ConstellationPane(
                     isUserGesture: Boolean,
                     resultMsg: Message?
                 ): Boolean {
-                    val extra = view?.hitTestResult?.extra
-                    if (!extra.isNullOrBlank()) view.loadUrl(extra)
-                    return false
+                    if (isUserGesture && chainSettled) hideVeil()
+                    val msg = resultMsg ?: return true
+                    val trampoline = WebView(ctx)
+                    trampoline.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            v: WebView,
+                            request: WebResourceRequest
+                        ): Boolean {
+                            takeUrl(web, request.url.toString(), popup = true)
+                            return true
+                        }
+
+                        @Deprecated("WebView still calls this on some OEM builds")
+                        override fun shouldOverrideUrlLoading(v: WebView, url: String): Boolean {
+                            takeUrl(web, url, popup = true)
+                            return true
+                        }
+                    }
+                    (msg.obj as? WebView.WebViewTransport)?.webView = trampoline
+                    msg.sendToTarget()
+                    return true
                 }
             }
             pan.bind(web)
             shell.addView(web)
-            host = web
             web.settings.userAgentString = Face.line()
-            web.loadUrl(href)
+            web.loadUrl(Ledger.https(href))
             shell
         },
         update = { shell ->
+            if (href.isBlank() || href == appliedHref) return@AndroidView
             val view = (0 until shell.childCount)
                 .map { shell.getChildAt(it) }
                 .filterIsInstance<WebView>()
-                .firstOrNull()
-            if (view != null && view.url != href && href.isNotBlank()) {
-                view.loadUrl(href)
-            }
+                .firstOrNull() ?: return@AndroidView
+            appliedHref = href
+            view.loadUrl(Ledger.https(href))
         },
         modifier = Modifier.fillMaxSize()
     )
-}
-
-private fun handOff(view: WebView, uri: Uri): Boolean {
-    return try {
-        view.context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        true
-    } catch (_: ActivityNotFoundException) {
-        true
     }
 }
+
+private fun openOutside(ctx: Context, raw: String) {
+    val intent = runCatching {
+        Intent(Intent.ACTION_VIEW, Uri.parse(raw)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }.getOrNull() ?: return
+    runCatching { ctx.startActivity(intent) }
+}
+
+private fun openOutsideIntent(ctx: Context, view: WebView, raw: String) {
+    val parsed = runCatching {
+        Intent.parseUri(raw, Intent.URI_INTENT_SCHEME)
+    }.getOrNull() ?: return
+    parsed.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    parsed.addCategory(Intent.CATEGORY_BROWSABLE)
+    parsed.component = null
+    parsed.selector = null
+    if (runCatching { ctx.startActivity(parsed) }.isSuccess) return
+    parsed.`package` = null
+    if (runCatching { ctx.startActivity(parsed) }.isSuccess) return
+    val fallback = parsed.getStringExtra("browser_fallback_url")
+        ?: parsed.getStringExtra("S.browser_fallback_url")
+    if (!fallback.isNullOrBlank() &&
+        (fallback.startsWith("http://") || fallback.startsWith("https://"))
+    ) {
+        view.loadUrl(fallback)
+    }
+}
+
+private val PAINTED = """
+(function(){
+  if(document.readyState!=='complete') return 0;
+  var b=document.body;
+  if(!b) return 0;
+  var root=document.getElementById('app')||document.getElementById('root')||b;
+  if(root.childElementCount<1) return 0;
+  var h=Math.max(b.scrollHeight||0, document.documentElement.scrollHeight||0);
+  if(h<120) return 0;
+  var frames=b.querySelectorAll('iframe');
+  if(frames.length){
+    var framed=false;
+    for(var i=0;i<frames.length;i++){
+      if(frames[i].offsetHeight>=80) framed=true;
+    }
+    if(!framed) return 0;
+  }
+  var live=b.querySelectorAll('img,canvas,iframe,form,input,button,a,video,svg').length;
+  var text=(b.innerText||'').replace(/\s+/g,'');
+  if(live<1 && text.length<12) return 0;
+  return 1;
+})();
+""".trimIndent()
 
 private val FROST = """
 (function(){
@@ -287,7 +530,12 @@ private val FROST = """
   '.gameview-mobile-header,.app-header,.js-safe-top{' +
     'padding-top:0!important;margin-top:0!important;' +
   '}';
+  function kbOpen(){
+    return !!(window.visualViewport && window.innerHeight &&
+      window.visualViewport.height < window.innerHeight * 0.75);
+  }
   function paint(){
+    if(kbOpen()) return;
     var head=document.head||document.documentElement; if(!head) return;
     var meta=document.querySelector('meta[name="viewport"]');
     if(!meta){

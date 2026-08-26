@@ -34,7 +34,10 @@ class OraclePost {
         }
         Ledger.stamp(raw)
         hub.lastBody = raw
-        Trace.line("config af_status=${raw.opt("af_status")} af_id=${raw.opt("af_id")} keys=${raw.length()}")
+        Trace.line(
+            "config af_status=${raw.opt("af_status")} af_id=${raw.opt("af_id")} " +
+                "media=${raw.opt("media_source")} keys=${raw.length()}"
+        )
         return post(raw)
     }
 
@@ -58,7 +61,10 @@ class OraclePost {
                 ?.bufferedReader()?.readText().orEmpty()
             conn.disconnect()
             interpret(code, text)
-        }.getOrElse { OracleReply(reached = false, ok = false, href = null, till = 0L) }
+        }.getOrElse {
+            Trace.line("config fail ${it.javaClass.simpleName} ${it.message}")
+            OracleReply(reached = false, ok = false, href = null, till = 0L)
+        }
     }
 
     private fun interpret(code: Int, text: String): OracleReply {
@@ -75,7 +81,7 @@ class OraclePost {
         val json = runCatching { JSONObject(text) }.getOrNull()
         val href = json?.optString("url").orEmpty().ifBlank { null }
         val ok = flag(json) && href != null
-        Trace.line("config http=$code ok=$ok")
+        Trace.line("config http=$code ok=$ok href=${!href.isNullOrBlank()}")
         return OracleReply(reached = true, ok = ok, href = href, till = expiry(json))
     }
 

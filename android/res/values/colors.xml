@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark navy taken from icon2 sky corners, so the mask fringe matches the art. -->
+    <color name="launch_bg">#071130</color>
+</resources>

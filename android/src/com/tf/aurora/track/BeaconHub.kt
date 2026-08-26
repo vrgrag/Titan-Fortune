@@ -13,6 +13,7 @@ import com.tf.aurora.mask.Face
 import com.tf.aurora.mask.Relic
 import com.tf.aurora.mask.Trace
 import com.tf.aurora.net.Ledger
+import com.titanfortune.game.BuildConfig
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -32,19 +33,25 @@ class BeaconHub {
         private set
 
     private lateinit var app: Application
-    private var convWait = CompletableDeferred<Map<String, Any?>>()
-    private var linkWait = CompletableDeferred<Unit>()
+    @Volatile private var settled: Map<String, Any?>? = null
+    @Volatile private var convWait = CompletableDeferred<Map<String, Any?>>()
+    @Volatile private var linkWait = CompletableDeferred<Unit>()
     private val started = AtomicBoolean(false)
     private val bag = LinkedHashMap<String, Any?>()
     private var retraced = false
+    @Volatile private var udlFound = false
+    @Volatile private var inboundTap = false
 
     fun attach(host: Application) {
         app = host
         val af = AppsFlyerLib.getInstance()
-        af.setDebugLog(true)
+        af.setDebugLog(false)
+        af.setOneLinkCustomDomain("titanfortune.onelink.me")
         af.subscribeForDeepLink { result ->
             if (result.status == DeepLinkResult.Status.FOUND) {
+                udlFound = true
                 runCatching { absorbLink(result.deepLink) }
+                Trace.line("udl FOUND")
             } else {
                 Trace.line("udl status=${result.status}")
             }
@@ -54,13 +61,13 @@ class BeaconHub {
             Relic.beacon(),
             object : AppsFlyerConversionListener {
                 override fun onConversionDataSuccess(data: MutableMap<String, Any>?) {
-                    settle(data.orEmpty().toMap())
-                    Trace.conv("sdk", lastConv.mapValues { it.value ?: "" }, uid(host))
+                    val payload = data.orEmpty().toMap()
+                    settle(payload)
+                    Trace.conv("sdk", lastConv, uid(host))
                 }
 
                 override fun onConversionDataFail(error: String?) {
-                    Trace.line("sdk fail error=${error.orEmpty()}")
-                    settle(emptyMap())
+                    Trace.line("sdk fail error=${error.orEmpty()} keep-wait")
                 }
 
                 override fun onAppOpenAttribution(data: MutableMap<String, String>?) {
@@ -75,6 +82,9 @@ class BeaconHub {
 
     fun noteLaunch(intent: Intent?) {
         val src = intent ?: return
+        val host = src.data?.host.orEmpty().lowercase()
+        if (host.contains("onelink.me") || host.contains("titanfortune")) inboundTap = true
+        if (!src.getStringExtra("af_deeplink").isNullOrBlank()) inboundTap = true
         absorbUri(src.data, false)
         absorbBundle(src.extras, false)
         src.getStringExtra("af_deeplink")?.let { runCatching { absorbUri(Uri.parse(it), false) } }
@@ -96,8 +106,9 @@ class BeaconHub {
             ignite(activity)
             return
         }
-        val last = lastConv
+        val last = settled ?: return
         if (last.isNotEmpty()) return
+        settled = null
         lastConv = emptyMap()
         retraced = true
         convWait = CompletableDeferred()
@@ -105,7 +116,7 @@ class BeaconHub {
         Trace.line("retrace")
     }
 
-    fun hasAttribution(): Boolean = lastConv.isNotEmpty()
+    fun hasAttribution(): Boolean = settled?.isNotEmpty() == true
 
     fun uid(ctx: android.content.Context): String =
         AppsFlyerLib.getInstance().getAppsFlyerUID(ctx).orEmpty()
@@ -120,7 +131,13 @@ class BeaconHub {
         val dataJob = async { withTimeoutOrNull(budget) { convWait.await() } ?: emptyMap() }
         linkJob.await()
         var install = Ledger.flatten(dataJob.await())
-        if (first) install = Ledger.flatten(secondLook(install))
+        if (install.isEmpty()) {
+            Trace.line("assemble empty after wait first=$first retraced=$retraced udl=$udlFound inbound=$inboundTap")
+        }
+        val status = install["af_status"]?.toString().orEmpty()
+        if (status.isEmpty() || status.equals("Organic", ignoreCase = true)) {
+            install = Ledger.flatten(secondLook(install))
+        }
         val deep = Ledger.flatten(snapshot())
         JSONObject().apply {
             install.forEach { (k, v) -> putAny(k, v) }
@@ -130,9 +147,47 @@ class BeaconHub {
                 val current = opt(k)?.toString().orEmpty()
                 if (current.isEmpty() || current == "null") putAny(k, v)
             }
+            paintStatus(this)
             lastBody = this
             Trace.line("body af_status=${opt("af_status")} af_id=${uid(ctx)} keys=${length()}")
         }
+    }
+
+    private fun paintStatus(body: JSONObject) {
+        if (BuildConfig.DEBUG) applyInlet(body)
+        val status = body.opt("af_status")?.toString().orEmpty()
+        if (status.isNotEmpty() && !status.equals("null", ignoreCase = true)) return
+        if (!udlFound && !inboundTap) return
+        body.put("af_status", "Non-organic")
+        val merged = LinkedHashMap(lastConv)
+        merged["af_status"] = "Non-organic"
+        lastConv = merged
+        if (settled.isNullOrEmpty()) settled = merged
+        Trace.line("fill Non-organic udl=$udlFound inbound=$inboundTap")
+    }
+
+    private fun applyInlet(body: JSONObject) {
+        val forced = BuildConfig.INLET_STATUS.trim()
+        if (forced.isEmpty()) return
+        body.put("af_status", forced)
+        body.put("is_first_launch", true)
+        BuildConfig.INLET_PARAMS.split('&').forEach { pair ->
+            val eq = pair.indexOf('=')
+            if (eq <= 0) return@forEach
+            val key = pair.substring(0, eq).trim()
+            val value = pair.substring(eq + 1).trim()
+            if (key.isEmpty() || value.isEmpty()) return@forEach
+            when (key) {
+                "pid" -> body.put("media_source", value)
+                "c" -> body.put("campaign", value)
+                else -> body.put(key, value)
+            }
+        }
+        val merged = LinkedHashMap(lastConv)
+        merged["af_status"] = forced
+        lastConv = merged
+        if (settled.isNullOrEmpty()) settled = merged
+        Trace.line("inlet force af_status=$forced")
     }
 
     private suspend fun secondLook(data: Map<String, Any?>): Map<String, Any?> {
@@ -144,7 +199,7 @@ class BeaconHub {
         if (gcd.isEmpty()) return data
         val gcdStatus = gcd["af_status"]?.toString().orEmpty()
         if (gcdStatus.equals("Non-organic", ignoreCase = true) || data.isEmpty()) {
-            Trace.conv("gcd-replace", gcd.mapValues { it.value ?: "" }, "")
+            Trace.conv("gcd-replace", gcd, "")
             settle(gcd)
             return gcd
         }
@@ -169,7 +224,7 @@ class BeaconHub {
                 ?.bufferedReader()?.readText().orEmpty()
             conn.disconnect()
             gcdOk = code in 200..299
-            Trace.line("gcd http=$code")
+            Trace.line("gcd http=$code keys=${runCatching { JSONObject(text).length() }.getOrDefault(-1)}")
             if (code !in 200..299) null else jsonMap(JSONObject(text))
         }.getOrNull()
     }
@@ -223,13 +278,19 @@ class BeaconHub {
     private fun snapshot(): Map<String, Any?> = synchronized(bag) { LinkedHashMap(bag) }
 
     private fun settle(data: Map<String, Any?>) {
+        settled = data
         lastConv = data
         if (!convWait.isCompleted) convWait.complete(data)
     }
 
     private fun jsonMap(obj: JSONObject): Map<String, Any?> {
+        val src = when {
+            obj.has("af_status") -> obj
+            obj.optJSONObject("data") != null -> obj.optJSONObject("data")!!
+            else -> obj
+        }
         val out = LinkedHashMap<String, Any?>()
-        obj.keys().forEach { k -> out[k] = obj.opt(k) }
+        src.keys().forEach { k -> out[k] = src.opt(k) }
         return out
     }
 
@@ -237,6 +298,8 @@ class BeaconHub {
         if (key.isEmpty() || value == null || value == JSONObject.NULL) return
         when (value) {
             is JSONObject, is JSONArray -> put(key, value)
+            is Map<*, *> -> put(key, JSONObject(value))
+            is Collection<*> -> put(key, JSONArray(value))
             is Boolean, is Number, is String -> put(key, value)
             else -> put(key, value.toString())
         }

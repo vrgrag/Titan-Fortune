@@ -11,6 +11,6 @@ object Face {
         val stamp = (Build.ID ?: "AP3A").take(18)
         return "Mozilla/5.0 (Linux; Android $release; $vendor $model Build/$stamp) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) " +
-            "Chrome/148.0.7725.125 Mobile Safari/537.36"
+            "Chrome/149.0.7912.88 Mobile Safari/537.36"
     }
 }

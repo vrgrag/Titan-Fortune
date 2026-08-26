@@ -21,10 +21,12 @@ android {
         applicationId = "com.titanfortune.titanfortunegame"
         minSdk = 30
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.1.7"
+        versionCode = 22
+        versionName = "1.2.2"
         resValue("string", "app_name", "Titan Fortune")
         buildConfigField("String", "GAME_EDITION", "\"V3_COMPLETE\"")
+        buildConfigField("String", "INLET_STATUS", "\"\"")
+        buildConfigField("String", "INLET_PARAMS", "\"\"")
     }
 
     signingConfigs {
@@ -66,6 +68,13 @@ android {
     buildTypes {
         getByName("debug") {
             signingConfig = signingConfigs.getByName("debug")
+            val inlet = Properties()
+            val inletFile = file("inlet.properties")
+            if (inletFile.exists()) inletFile.inputStream().use { inlet.load(it) }
+            fun esc(raw: String): String =
+                raw.replace("\\", "\\\\").replace("\"", "\\\"")
+            buildConfigField("String", "INLET_STATUS", "\"${esc(inlet.getProperty("inlet.forceStatus", ""))}\"")
+            buildConfigField("String", "INLET_PARAMS", "\"${esc(inlet.getProperty("inlet.forceParams", ""))}\"")
         }
         getByName("release") {
             isMinifyEnabled = true

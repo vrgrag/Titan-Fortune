@@ -23,12 +23,20 @@ class ShorePan(private val host: View) {
     private var riding = false
     private var declared = 0
     private var settled = 0
+    private var lastW = 0
 
     private val ping = Runnable {
         web?.evaluateJavascript("window.__hvKbPing&&window.__hvKbPing();", null)
     }
 
     private val layoutWatch = ViewTreeObserver.OnGlobalLayoutListener {
+        val w = host.width
+        if (lastW > 0 && abs(w - lastW) > 80) {
+            lastW = w
+            afterTurn()
+            return@OnGlobalLayoutListener
+        }
+        lastW = w
         if (!riding) adopt(measureKb(ViewCompat.getRootWindowInsets(host)))
     }
 
@@ -74,7 +82,7 @@ class ShorePan(private val host: View) {
                     riding = false
                     declared = 0
                     adopt(measureKb(ViewCompat.getRootWindowInsets(host)))
-                    if (kb > 0) ask(120L) else slide()
+                    if (kb > 0) ask(120L) else rest()
                 }
             }
         )
@@ -86,7 +94,9 @@ class ShorePan(private val host: View) {
         web = view
         wipe()
         view.translationY = 0f
+        view.setPadding(0, 0, 0, 0)
         view.addJavascriptInterface(FocusBridge(), BRIDGE)
+        ViewCompat.requestApplyInsets(host)
     }
 
     fun wipe() {
@@ -100,8 +110,7 @@ class ShorePan(private val host: View) {
     fun afterTurn() {
         wipe()
         settled = 0
-        kb = 0
-        web?.translationY = 0f
+        rest()
         ViewCompat.requestApplyInsets(host)
         if (measureKb(ViewCompat.getRootWindowInsets(host)) > 0) ask(160L)
     }
@@ -112,16 +121,33 @@ class ShorePan(private val host: View) {
     }
 
     private fun adopt(height: Int) {
+        if (height <= 0) {
+            if (kb != 0 || (web?.translationY ?: 0f) != 0f) rest()
+            return
+        }
         if (height == kb) {
-            if (height > 0) slide()
+            if (fieldBottom >= 0f) slide()
             return
         }
         val slack = (8f * host.resources.displayMetrics.density).toInt()
-        if (kb > 0 && height > 0 && abs(height - kb) < slack) return
+        if (kb > 0 && abs(height - kb) < slack) return
         kb = height
-        if (height > 0) settled = height
+        settled = height
         slide()
-        if (kb > 0) ask(80L)
+        if (fieldBottom < 0f) ask(80L)
+    }
+
+    private fun rest() {
+        host.removeCallbacks(ping)
+        kb = 0
+        settled = 0
+        fieldTop = -1f
+        fieldBottom = -1f
+        framed = false
+        val view = web ?: return
+        view.animate().cancel()
+        view.translationY = 0f
+        ViewCompat.requestApplyInsets(host)
     }
 
     private fun rise(height: Int) {
@@ -139,21 +165,14 @@ class ShorePan(private val host: View) {
         return if (gap >= floor) gap else 0
     }
 
-    private fun padCutout(view: View, insets: WindowInsetsCompat) {
-        if (imeUp) return
-        val raw = insets.toWindowInsets()?.displayCutout
-        val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-        val left = maxOf(cut.left, raw?.safeInsetLeft ?: 0)
-        val top = maxOf(cut.top, raw?.safeInsetTop ?: 0)
-        val right = maxOf(cut.right, raw?.safeInsetRight ?: 0)
-        val bottom = maxOf(cut.bottom, raw?.safeInsetBottom ?: 0)
+    private fun padCutout(view: View, @Suppress("UNUSED_PARAMETER") insets: WindowInsetsCompat) {
         if (
-            view.paddingLeft == left &&
-            view.paddingTop == top &&
-            view.paddingRight == right &&
-            view.paddingBottom == bottom
+            view.paddingLeft == 0 &&
+            view.paddingTop == 0 &&
+            view.paddingRight == 0 &&
+            view.paddingBottom == 0
         ) return
-        view.setPadding(left, top, right, bottom)
+        view.setPadding(0, 0, 0, 0)
     }
 
     private fun stripIme(insets: WindowInsetsCompat): WindowInsetsCompat =
@@ -197,12 +216,19 @@ class ShorePan(private val host: View) {
                 val nextBot = bottom.toFloat()
                 val same =
                     framed == frame &&
-                        abs(fieldTop - nextTop) < 2f &&
-                        abs(fieldBottom - nextBot) < 2f
+                        abs(fieldTop - nextTop) < 8f &&
+                        abs(fieldBottom - nextBot) < 8f
                 framed = frame
                 fieldTop = nextTop
                 fieldBottom = nextBot
-                if (kb > 0 && !same) slide()
+                if (kb > 0 && !same && !riding) slide()
+            }
+        }
+
+        @JavascriptInterface
+        fun drop() {
+            web?.post {
+                if (measureKb(ViewCompat.getRootWindowInsets(host)) <= 0) rest()
             }
         }
     }
@@ -256,6 +282,15 @@ class ShorePan(private val host: View) {
             var rect=caretBox(node,win);
             return {framed:false,top:lift+rect.top,bot:lift+rect.bottom};
           }
+          function kbOpen(){
+            return !!(window.visualViewport && window.innerHeight &&
+              window.visualViewport.height < window.innerHeight * 0.85);
+          }
+          var origSiv=Element.prototype.scrollIntoView;
+          Element.prototype.scrollIntoView=function(){
+            if(kbOpen()) return;
+            return origSiv.apply(this, arguments);
+          };
           function pulse(){
             var spot=locate();
             if(!spot) return;
@@ -269,7 +304,15 @@ class ShorePan(private val host: View) {
               doc.__hvKbDoc=1;
               doc.addEventListener('focusin', function(ev){
                 if(!isField(ev.target)) return;
+                try{ ev.target.scrollIntoView=function(){}; }catch(err){}
                 pulse();
+              }, true);
+              doc.addEventListener('focusout', function(){
+                setTimeout(function(){
+                  if(!isField(document.activeElement)){
+                    try{ HvFocus.drop(); }catch(err){}
+                  }
+                }, 120);
               }, true);
             }catch(err){}
           }
